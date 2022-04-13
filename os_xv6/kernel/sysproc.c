@@ -95,3 +95,13 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_print_pids(void){
+  return print_pids();
+}
+
+uint64
+sys_kill_system(void){
+  return kill_system();
+}
