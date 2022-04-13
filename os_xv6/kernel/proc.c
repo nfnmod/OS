@@ -476,14 +476,22 @@ scheduler(void)
             if(first_come){
               if (min_ticks > p->last_runnable_time){
                 first_come = p;
-                min_ticks = p->last_runnable_time
+                min_ticks = p->last_runnable_time;
               }
             }
             else{
-              
+              first_come = P;
+              min_ticks = p->last_runnable_time;
             }
         }
+        release(&p->lock);
       }
+      acquire(&first_come->lock);
+      first_come->state = RUNNING;
+      c->proc = first_come;
+      swtch(&c->context, &first_come->context);
+      c->proc = 0;
+      release(&first_come->lock);
     }
   }
 }
