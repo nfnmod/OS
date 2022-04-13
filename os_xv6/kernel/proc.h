@@ -92,6 +92,7 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
+  uint last_runnable_time      // value of global ticks when the procces was running the last time 
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
