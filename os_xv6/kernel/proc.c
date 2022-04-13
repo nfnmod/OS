@@ -6,6 +6,14 @@
 #include "proc.h"
 #include "defs.h"
 
+#ifndef SCHEDFLAG
+#define SCHEDFLAG DEFAULT
+#endif
+
+int pause_flag = 0;
+int pause_time = 0;
+struct spinlock pause_lock;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -445,14 +453,30 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   
-  int SCHEDFLAG = 0;
+  //int SCHEDFLAG = 0;
 
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    //if (SCHEDFLAG == "DEFAULT"){
-    if (SCHEDFLAG == 0){
+
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    release(&pause_lock);
+
+    if (pause_flag_value == 1) {
+      int start_time = ticks;
+      while ((10*ticks) - (10*start_time) < pause_time);
+
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+
+#if SCHEDFLAG == DEFAULT
+    //if (SCHEDFLAG == DEFAULT) {
+    //if (SCHEDFLAG == 0){
+
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE) {
@@ -470,15 +494,16 @@ scheduler(void)
         release(&p->lock);
       }
     }
-    //else if (SCHEDFLAG == "FCFS"){
-    else {
-      struct proc *first_come = 0;
+#elif SCHEDFLAG == FCFS
+    //else if (SCHEDFLAG == FCFS) {
+    //else {
+      struct proc *first_come;
       uint min_ticks;
-      for(p = proc; p < &proc[NPROC]; p++){
+      for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if (p->state == RUNNABLE){
             if(first_come){
-              if (min_ticks > p->last_runnable_time){
+              if (min_ticks > p->last_runnable_time) {
                 first_come = p;
                 min_ticks = p->last_runnable_time;
               }
@@ -498,6 +523,7 @@ scheduler(void)
       release(&first_come->lock);
     }
   }
+#endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -701,7 +727,7 @@ print_pids(void)
       printf("%s %d\n", p->name, p->pid);
       release(&p->lock);
   }
-  
+
   return 0;
 }
 
@@ -709,10 +735,18 @@ print_pids(void)
 int 
 pause_system(int seconds)
 {
-  // push_off();
-  // struct cpu *myc = mycpu();
-  // pop_off();
-  
+  acquire(&pause_lock);
+  pause_flag = 1;
+  pause_time = seconds;
+  release(&pause_lock);
+
+  int start_time = ticks;
+
+  while ((10*ticks) - (10*start_time) < pause_time);
+  acquire(&pause_lock);
+  pause_flag = 0;
+  release(&pause_lock);
+
   return 0;
 }
 
