@@ -445,11 +445,14 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   
+  int SCHEDFLAG = 0;
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    if (SCHEDFLAG == "DEFAULT"){
+    //if (SCHEDFLAG == "DEFAULT"){
+    if (SCHEDFLAG == 0){
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE) {
@@ -467,7 +470,8 @@ scheduler(void)
         release(&p->lock);
       }
     }
-    else if (SCHEDFLAG == "FCFS"){
+    //else if (SCHEDFLAG == "FCFS"){
+    else {
       struct proc *first_come = 0;
       uint min_ticks;
       for(p = proc; p < &proc[NPROC]; p++){
@@ -480,7 +484,7 @@ scheduler(void)
               }
             }
             else{
-              first_come = P;
+              first_come = p;
               min_ticks = p->last_runnable_time;
             }
         }
@@ -688,7 +692,9 @@ procdump(void)
 }
 
 // added for printing pids of shell and init - files changed: proc.c , sysproc.c, defs.h, usys.pl, user.h, syscall.h, printpids.c, make-file uprogs
-int print_pids(void){
+int 
+print_pids(void)
+{
   struct proc *p;
   for(p = proc; p < &proc[NPROC]; p++){
       acquire(&p->lock);
@@ -699,8 +705,21 @@ int print_pids(void){
   return 0;
 }
 
+// pause system - pause all processes but init and shell
+int 
+pause_system(int seconds)
+{
+  // push_off();
+  // struct cpu *myc = mycpu();
+  // pop_off();
+  
+  return 0;
+}
+
 // kill system - kill all processes but init and shell
-int kill_system(void){
+int 
+kill_system(void)
+{
   struct proc *p;
   int pid;
   for(p = proc; p < &proc[NPROC]; p++){
