@@ -141,6 +141,9 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  //set variables for schedueling
+  p->last_runnable_time = ticks;
+
   return p;
 }
 
@@ -225,6 +228,8 @@ uchar initcode[] = {
 void
 userinit(void)
 {
+  // print ids
+
   struct proc *p;
 
   p = allocproc();
@@ -444,22 +449,41 @@ scheduler(void)
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    if (SCHEDFLAG == "DEFAULT"){
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+        }
+        release(&p->lock);
       }
-      release(&p->lock);
+    }
+    else if (SCHEDFLAG == "FCFS"){
+      struct proc *first_come = 0;
+      uint min_ticks;
+      for(p = proc; p < &proc[NPROC]; p++){
+        acquire(&p->lock);
+        if (p->state == RUNNABLE){
+            if(first_come){
+              if (min_ticks > p->last_runnable_time){
+                first_come = p;
+                min_ticks = p->last_runnable_time
+              }
+            }
+            else{
+              
+            }
+        }
+      }
     }
   }
 }
@@ -653,4 +677,32 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// added for printing pids of shell and init - files changed: proc.c , sysproc.c, defs.h, usys.pl, user.h, syscall.h, printpids.c, make-file uprogs
+int print_pids(void){
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++){
+      acquire(&p->lock);
+      printf("%s %d\n", p->name, p->pid);
+      release(&p->lock);
+  }
+  
+  return 0;
+}
+
+// kill system - kill all processes but init and shell
+int kill_system(void){
+  struct proc *p;
+  int pid;
+  for(p = proc; p < &proc[NPROC]; p++){
+      acquire(&p->lock);
+      pid = p->pid;
+      // init = 1 , shell = 2
+      if (pid > 2){
+        p->killed = 1;
+      }
+      release(&p->lock);
+  }
+  return 0;
 }
