@@ -451,10 +451,22 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  default_scheduler();
+  // fcfs_scheduler();
+
+// #if SCHEDFLAG == DEFAULT
+// printf("Default");
+// #elif SCHEDFLAG == FCFS
+// printf("FCFS");
+// #else
+// panic("Fail");
+// #endif
+}
+
+void
+default_scheduler(void){
   struct proc *p;
   struct cpu *c = mycpu();
-  
-  //int SCHEDFLAG = 0;
 
   c->proc = 0;
   for(;;){
@@ -482,57 +494,81 @@ scheduler(void)
     }
     // pause_system - syscall check - end
 
-#if SCHEDFLAG == DEFAULT
-    //if (SCHEDFLAG == DEFAULT) {
-    //if (SCHEDFLAG == 0){
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE) {
-          // Switch to chosen process.  It is the process's job
-          // to release its lock and then reacquire it
-          // before jumping back to us.
-          p->state = RUNNING;
-          c->proc = p;
-          swtch(&c->context, &p->context);
-
-          // Process is done running for now.
-          // It should have changed its p->state before coming back.
-          c->proc = 0;
-        }
-        release(&p->lock);
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
       }
+      release(&p->lock);
     }
-#elif SCHEDFLAG == FCFS
-    //else if (SCHEDFLAG == FCFS) {
-    //else {
-      struct proc *first_come;
-      uint min_ticks;
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if (p->state == RUNNABLE){
-            if(first_come){
-              if (min_ticks > p->last_runnable_time) {
-                first_come = p;
-                min_ticks = p->last_runnable_time;
-              }
-            }
-            else{
+  }
+}
+
+void
+fcfs_scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    // pause_system - syscall check - start
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
+    release(&pause_lock);
+    
+    if (pause_flag_value == 1) {
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+    // pause_system - syscall check - end
+
+    struct proc *first_come = 0;
+    uint min_ticks = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE){
+          if(first_come){
+            if (min_ticks > p->last_runnable_time) {
               first_come = p;
               min_ticks = p->last_runnable_time;
             }
-        }
-        release(&p->lock);
+          }
+          else{
+            first_come = p;
+            min_ticks = p->last_runnable_time;
+          }
       }
-      acquire(&first_come->lock);
-      first_come->state = RUNNING;
-      c->proc = first_come;
-      swtch(&c->context, &first_come->context);
-      c->proc = 0;
-      release(&first_come->lock);
+      release(&p->lock);
     }
+    acquire(&first_come->lock);
+    first_come->state = RUNNING;
+    c->proc = first_come;
+    swtch(&c->context, &first_come->context);
+    c->proc = 0;
+    release(&first_come->lock);
   }
-#endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
