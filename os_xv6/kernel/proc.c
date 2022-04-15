@@ -11,7 +11,8 @@
 #endif
 
 int pause_flag = 0;
-int pause_time = 0;
+int pause_wait_time = 0;
+int pause_start_time = 0;
 struct spinlock pause_lock;
 
 struct cpu cpus[NCPU];
@@ -460,18 +461,26 @@ scheduler(void)
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
+    // pause_system - syscall check - start
     acquire(&pause_lock);
     int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
     release(&pause_lock);
-
+    
     if (pause_flag_value == 1) {
-      int start_time = ticks;
-      while ((10*ticks) - (10*start_time) < pause_time);
-
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
       acquire(&pause_lock);
       pause_flag = 0;
       release(&pause_lock);
     }
+    // pause_system - syscall check - end
 
 #if SCHEDFLAG == DEFAULT
     //if (SCHEDFLAG == DEFAULT) {
@@ -737,18 +746,34 @@ pause_system(int seconds)
 {
   acquire(&pause_lock);
   pause_flag = 1;
-  pause_time = seconds;
+  pause_wait_time = seconds; 
+  acquire(&tickslock);
+  pause_start_time = ticks;
+  release(&tickslock);
   release(&pause_lock);
 
-  int start_time = ticks;
+  yield();
 
-  while ((10*ticks) - (10*start_time) < pause_time);
-  acquire(&pause_lock);
-  pause_flag = 0;
-  release(&pause_lock);
+  // acquire(&pause_lock);
+  // int start_time = pause_start_time;
+  // release(&pause_lock);
+
+  // int time_passed = 0;
+  // while (time_passed < seconds)
+  // {
+  //   acquire(&tickslock);
+  //   time_passed = (ticks - start_time) / 10;
+  //   release(&tickslock);
+  // }
+
+  // acquire(&pause_lock);
+  // pause_flag = 0;
+  // release(&pause_lock);
 
   return 0;
 }
+
+  
 
 // kill system - kill all processes but init and shell
 int 
@@ -759,11 +784,12 @@ kill_system(void)
   for(p = proc; p < &proc[NPROC]; p++){
       acquire(&p->lock);
       pid = p->pid;
+      release(&p->lock);
+
       // init = 1 , shell = 2
       if (pid > 2){
-        p->killed = 1;
+        kill(pid);
       }
-      release(&p->lock);
   }
   return 0;
 }
