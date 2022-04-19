@@ -15,6 +15,9 @@ int pause_wait_time = 0;
 int pause_start_time = 0;
 struct spinlock pause_lock;
 
+int fcfs_time = 0;
+struct spinlock fcfs_lock;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -151,7 +154,9 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   //set variables for schedueling
+  acquire(&tickslock);
   p->last_runnable_time = ticks;
+  release(&tickslock);
 
   return p;
 }
@@ -502,30 +507,41 @@ fcfs_scheduler(void){
     }
     // pause_system - syscall check - end
 
-    struct proc *first_come = 0;
-    uint min_ticks = 0;
+    acquire(&fcfs_lock);
+    fcfs_time = 0;
+    int first_come = -1;
+    int i = 0;
+    struct proc *to_run = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE){
-          if(first_come){
-            if (min_ticks > p->last_runnable_time) {
-              first_come = p;
-              min_ticks = p->last_runnable_time;
+          if(first_come != -1){
+            if (fcfs_time > p->last_runnable_time) {
+              first_come = i;
+              fcfs_time = p->last_runnable_time;
             }
           }
           else{
-            first_come = p;
-            min_ticks = p->last_runnable_time;
+            first_come = i;
+            fcfs_time = p->last_runnable_time;
           }
       }
       release(&p->lock);
+      i++;
     }
-    acquire(&first_come->lock);
-    first_come->state = RUNNING;
-    c->proc = first_come;
-    swtch(&c->context, &first_come->context);
-    c->proc = 0;
-    release(&first_come->lock);
+    if (first_come != -1){
+      to_run = &proc[first_come];
+      acquire(&to_run->lock);
+      to_run->state = RUNNING;
+      release(&fcfs_lock);
+      c->proc = to_run;
+      swtch(&c->context, &to_run->context);
+      c->proc = 0;
+      release(&to_run->lock);
+    }
+    else{
+        release(&fcfs_lock);
+    }
   }
 }
 
@@ -663,6 +679,9 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+  acquire(&tickslock);
+  p->last_runnable_time = ticks;
+  release(&tickslock);
   sched();
   release(&p->lock);
 }
