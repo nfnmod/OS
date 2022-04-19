@@ -20,6 +20,11 @@ struct spinlock fcfs_lock;
 int rate = 5;
 struct spinlock sjf_lock;
 
+// used for performance measurements
+int sleeping_processes_mean = 0;
+int runnable_processes_mean = 0;
+int running_processes_mean = 0;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -164,6 +169,11 @@ found:
   p->mean_ticks = 0;
   p->last_ticks = 0;
 
+  // used for performance measurements
+  p->sleeping_time = 0;
+  p->runnable_time = 0;
+  p->running_time = 0;
+
   return p;
 }
 
@@ -194,6 +204,11 @@ freeproc(struct proc *p)
   // used for SJF scheduler
   p->mean_ticks = 0;
   p->last_ticks = 0;
+
+  // used for performance measurements
+  p->sleeping_time = 0;
+  p->runnable_time = 0;
+  p->running_time = 0;
 }
 
 // Create a user page table for a given process,
@@ -472,12 +487,12 @@ scheduler(void)
   #ifdef DEFAULT
   printf("DEFAULT\n");
   default_scheduler();
-  #elif FCFS
-  printf("FCFS\n");
-  fcfs_scheduler();
   #elif SJF
   printf("SJF\n");
   sjf_scheduler();
+  #elif FCFS
+  printf("FCFS\n");
+  fcfs_scheduler();
   #else
   panic("Invalid policy selected");
   #endif
@@ -533,75 +548,7 @@ default_scheduler(void){
   }
 }
 
-void
-fcfs_scheduler(void){
-  struct proc *p;
-  struct cpu *c = mycpu();
-
-  c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
-
-    // pause_system - syscall check - start
-    acquire(&pause_lock);
-    int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
-    int seconds = pause_wait_time;
-    release(&pause_lock);
-    
-    if (pause_flag_value == 1) {
-      int time_passed = 0;
-      while (time_passed < seconds)
-      {
-        acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
-        release(&tickslock);
-      }
-      acquire(&pause_lock);
-      pause_flag = 0;
-      release(&pause_lock);
-    }
-    // pause_system - syscall check - end
-
-    acquire(&fcfs_lock);
-    fcfs_time = 0;
-    int first_come = -1;
-    int i = 0;
-    struct proc *to_run = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE){
-          if(first_come != -1){
-            if (fcfs_time > p->last_runnable_time) {
-              first_come = i;
-              fcfs_time = p->last_runnable_time;
-            }
-          }
-          else{
-            first_come = i;
-            fcfs_time = p->last_runnable_time;
-          }
-      }
-      release(&p->lock);
-      i++;
-    }
-    if (first_come != -1){
-      to_run = &proc[first_come];
-      acquire(&to_run->lock);
-      to_run->state = RUNNING;
-      release(&fcfs_lock);
-      c->proc = to_run;
-      swtch(&c->context, &to_run->context);
-      c->proc = 0;
-      release(&to_run->lock);
-    }
-    else{
-        release(&fcfs_lock);
-    }
-  }
-}
-
+// Shortest Job First scheduler
 void
 sjf_scheduler(void){
   struct proc *p;
@@ -637,11 +584,10 @@ sjf_scheduler(void){
     int min_mean_ticks = 0;
     struct proc *sjf_p = 0;
 
+    // locking other CPUs until the next process to run will be selcted
     acquire(&sjf_lock);
-
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-
       if(p->state == RUNNABLE) {
         if(min_found == 1) {
           if(min_mean_ticks < p->mean_ticks) {
@@ -665,9 +611,7 @@ sjf_scheduler(void){
       sjf_p->state = RUNNING;
       c->proc = sjf_p;
       release(&sjf_lock);
-
       swtch(&c->context, &sjf_p->context);
-
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
@@ -675,6 +619,77 @@ sjf_scheduler(void){
     }
     else {
       release(&sjf_lock);
+    }
+  }
+}
+
+// First Comes First Served scheduler
+void
+fcfs_scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    // pause_system - syscall check - start
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
+    release(&pause_lock);
+    
+    if (pause_flag_value == 1) {
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+    // pause_system - syscall check - end
+
+    // locking other CPUs until the next process to run will be selcted
+    acquire(&fcfs_lock);
+    fcfs_time = 0;
+    int first_come = -1;
+    int i = 0;
+    struct proc *to_run = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE){
+          if(first_come != -1){
+            if (fcfs_time > p->last_runnable_time) {
+              first_come = i;
+              fcfs_time = p->last_runnable_time;
+            }
+          }
+          else{
+            first_come = i;
+            fcfs_time = p->last_runnable_time;
+          }
+      }
+      release(&p->lock);
+      i++;
+    }
+    if (first_come != -1){
+      to_run = &proc[first_come];
+      acquire(&to_run->lock);
+      to_run->state = RUNNING;
+      release(&fcfs_lock);
+      c->proc = to_run;
+      swtch(&c->context, &to_run->context);
+      c->proc = 0;
+      release(&to_run->lock);
+    }
+    else{
+        release(&fcfs_lock);
     }
   }
 }
@@ -895,10 +910,11 @@ print_pids(void)
   return 0;
 }
 
-// pause system - pause all processes but init and shell
+// pause system - pause all processes
 int 
 pause_system(int seconds)
 {
+  // setting pause_flag that processes will pause only on the next context switch
   acquire(&pause_lock);
   pause_flag = 1;
   pause_wait_time = seconds; 
@@ -907,24 +923,8 @@ pause_system(int seconds)
   release(&tickslock);
   release(&pause_lock);
 
+  // returning to scheduler to pause in there
   yield();
-
-  // acquire(&pause_lock);
-  // int start_time = pause_start_time;
-  // release(&pause_lock);
-
-  // int time_passed = 0;
-  // while (time_passed < seconds)
-  // {
-  //   acquire(&tickslock);
-  //   time_passed = (ticks - start_time) / 10;
-  //   release(&tickslock);
-  // }
-
-  // acquire(&pause_lock);
-  // pause_flag = 0;
-  // release(&pause_lock);
-
   return 0;
 }
 
@@ -934,6 +934,7 @@ pause_system(int seconds)
 int 
 kill_system(void)
 {
+  // going over all the processes and sending them kill
   struct proc *p;
   int pid;
   for(p = proc; p < &proc[NPROC]; p++){
@@ -941,7 +942,7 @@ kill_system(void)
       pid = p->pid;
       release(&p->lock);
 
-      // init = 1 , shell = 2
+      // init = 1, shell = 2
       if (pid > 2){
         kill(pid);
       }

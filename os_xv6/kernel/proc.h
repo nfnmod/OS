@@ -100,6 +100,11 @@ struct proc {
   // used for FCFS scheduler
   uint last_runnable_time;     // Value of global ticks when the procces was running the last time 
 
+  // used for performance measurements
+  uint sleeping_time;
+  uint runnable_time;
+  uint running_time;
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
