@@ -155,10 +155,14 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-  //set variables for schedueling
+  // used for FCFS scheduler
   acquire(&tickslock);
   p->last_runnable_time = ticks;
   release(&tickslock);
+
+  // used for SJF scheduler
+  p->mean_ticks = 0;
+  p->last_ticks = 0;
 
   return p;
 }
@@ -183,6 +187,13 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // used for FCFS scheduler
+  p->last_runnable_time = 0;
+
+  // used for SJF scheduler
+  p->mean_ticks = 0;
+  p->last_ticks = 0;
 }
 
 // Create a user page table for a given process,
