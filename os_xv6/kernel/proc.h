@@ -92,7 +92,13 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
-  uint last_runnable_time;      // value of global ticks when the procces was running the last time 
+
+  // used fo SJF scheduler
+  uint mean_ticks;             // The mean ticks score, used to find the shortest process to run
+  uint last_ticks;             // The number of ticks in the last CPU burst
+
+  // used for FCFS scheduler
+  uint last_runnable_time;     // Value of global ticks when the procces was running the last time 
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

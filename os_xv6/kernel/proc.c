@@ -6,17 +6,19 @@
 #include "proc.h"
 #include "defs.h"
 
-// #ifndef SCHEDFLAG
-// #define SCHEDFLAG DEFAULT
-// #endif
-
+// used fo pause_system 
 int pause_flag = 0;
 int pause_wait_time = 0;
 int pause_start_time = 0;
 struct spinlock pause_lock;
 
+// used for FCFS scheduler
 int fcfs_time = 0;
 struct spinlock fcfs_lock;
+
+// used for SJF scheduler
+int rate = 5;
+struct spinlock sjf_lock;
 
 struct cpu cpus[NCPU];
 
@@ -456,24 +458,68 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
-  #ifdef FCFS
+  #ifdef DEFAULT
+  printf("DEFAULT\n");
+  default_scheduler();
+  #elif FCFS
   printf("FCFS\n");
   fcfs_scheduler();
   #elif SJF
   printf("SJF\n");
   sjf_scheduler();
   #else
-  printf("DEFAULT\n");
-  default_scheduler();
+  panic("Invalid policy selected");
   #endif
+}
 
-// #if SCHEDFLAG == DEFAULT
-// printf("Default");
-// #elif SCHEDFLAG == FCFS
-// printf("FCFS");
-// #else
-// panic("Fail");
-// #endif
+void
+default_scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    // pause_system - syscall check - start
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
+    release(&pause_lock);
+    
+    if (pause_flag_value == 1) {
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+    // pause_system - syscall check - end
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }
+  }
 }
 
 void
@@ -576,71 +622,48 @@ sjf_scheduler(void){
     }
     // pause_system - syscall check - end
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+    int min_found = 0;
+    int min_mean_ticks = 0;
+    struct proc *sjf_p = 0;
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
-    }
-  }
-}
-
-void
-default_scheduler(void){
-  struct proc *p;
-  struct cpu *c = mycpu();
-
-  c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
-
-    // pause_system - syscall check - start
-    acquire(&pause_lock);
-    int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
-    int seconds = pause_wait_time;
-    release(&pause_lock);
-    
-    if (pause_flag_value == 1) {
-      int time_passed = 0;
-      while (time_passed < seconds)
-      {
-        acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
-        release(&tickslock);
-      }
-      acquire(&pause_lock);
-      pause_flag = 0;
-      release(&pause_lock);
-    }
-    // pause_system - syscall check - end
+    acquire(&sjf_lock);
 
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+      if(p->state == RUNNABLE) {
+        if(min_found == 1) {
+          if(min_mean_ticks < p->mean_ticks) {
+            min_mean_ticks = p->mean_ticks;
+            sjf_p = p;
+          }
+        }
+        else {
+          min_found = 1;
+          min_mean_ticks = p->mean_ticks;
+          sjf_p = p;
+        }
       }
       release(&p->lock);
+    }
+    if(min_found) {
+      acquire(&sjf_p->lock);
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      sjf_p->state = RUNNING;
+      c->proc = sjf_p;
+      release(&sjf_lock);
+
+      swtch(&c->context, &sjf_p->context);
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+      release(&sjf_p->lock);
+    }
+    else {
+      release(&sjf_lock);
     }
   }
 }
@@ -679,9 +702,17 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+
+  // used for SJF and FCFS schedulers
+  //uint total_ticks = p->last_ticks;
   acquire(&tickslock);
+  p->last_ticks = ticks;
   p->last_runnable_time = ticks;
   release(&tickslock);
+  //total_ticks = p->last_ticks - total_ticks;
+  //p->mean_ticks = ((10 - rate) * p->mean_ticks + total_ticks * (rate)) / 10;
+  p->mean_ticks = ((10 - rate) * p->mean_ticks + p->last_ticks * (rate)) / 10;
+
   sched();
   release(&p->lock);
 }
