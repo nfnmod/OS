@@ -6,9 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 
-#ifndef SCHEDFLAG
-#define SCHEDFLAG DEFAULT
-#endif
+// #ifndef SCHEDFLAG
+// #define SCHEDFLAG DEFAULT
+// #endif
 
 int pause_flag = 0;
 int pause_wait_time = 0;
@@ -451,8 +451,16 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  #ifdef FCFS
+  printf("FCFS\n");
+  fcfs_scheduler();
+  #elif SJF
+  printf("SJF\n");
+  sjf_scheduler();
+  #else
+  printf("DEFAULT\n");
   default_scheduler();
-  // fcfs_scheduler();
+  #endif
 
 // #if SCHEDFLAG == DEFAULT
 // printf("Default");
@@ -461,56 +469,6 @@ scheduler(void)
 // #else
 // panic("Fail");
 // #endif
-}
-
-void
-default_scheduler(void){
-  struct proc *p;
-  struct cpu *c = mycpu();
-
-  c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
-
-    // pause_system - syscall check - start
-    acquire(&pause_lock);
-    int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
-    int seconds = pause_wait_time;
-    release(&pause_lock);
-    
-    if (pause_flag_value == 1) {
-      int time_passed = 0;
-      while (time_passed < seconds)
-      {
-        acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
-        release(&tickslock);
-      }
-      acquire(&pause_lock);
-      pause_flag = 0;
-      release(&pause_lock);
-    }
-    // pause_system - syscall check - end
-
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
-    }
-  }
 }
 
 void
@@ -568,6 +526,106 @@ fcfs_scheduler(void){
     swtch(&c->context, &first_come->context);
     c->proc = 0;
     release(&first_come->lock);
+  }
+}
+
+void
+sjf_scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    // pause_system - syscall check - start
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
+    release(&pause_lock);
+    
+    if (pause_flag_value == 1) {
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+    // pause_system - syscall check - end
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }
+  }
+}
+
+void
+default_scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    // pause_system - syscall check - start
+    acquire(&pause_lock);
+    int pause_flag_value = pause_flag;
+    int start_time = pause_start_time;
+    int seconds = pause_wait_time;
+    release(&pause_lock);
+    
+    if (pause_flag_value == 1) {
+      int time_passed = 0;
+      while (time_passed < seconds)
+      {
+        acquire(&tickslock);
+        time_passed = (ticks - start_time) / 10;
+        release(&tickslock);
+      }
+      acquire(&pause_lock);
+      pause_flag = 0;
+      release(&pause_lock);
+    }
+    // pause_system - syscall check - end
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }
   }
 }
 
