@@ -20,11 +20,18 @@ struct spinlock fcfs_lock;
 int rate = 5;
 struct spinlock sjf_lock;
 
-// used for performance measurements
+// used for performance measurements (use with "tickslock")
 int sleeping_processes_mean = 0;
 int runnable_processes_mean = 0;
 int running_processes_mean = 0;
 int num_of_processes = 0;
+
+// used for program_time (use with "tickslock")
+int program_time = 0;
+
+// used for cpu_utilization (use with "tickslock")
+int start_time = 0;
+int cpu_utilization = 0;
 
 struct cpu cpus[NCPU];
 
@@ -67,6 +74,11 @@ void
 procinit(void)
 {
   struct proc *p;
+
+  // used for cpu_utilization
+  acquire(&tickslock);
+  start_time = ticks;
+  release(&tickslock);
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
@@ -439,9 +451,9 @@ exit(int status)
   runnable_processes_mean = (runnable_processes_mean * num_of_processes + p->runnable_time) / (num_of_processes + 1);
   running_processes_mean = (running_processes_mean * num_of_processes + p->running_time) / (num_of_processes + 1);
   num_of_processes++;
+  program_time += p->running_time;
+  cpu_utilization = (100 * program_time) / (ticks - start_time);
   release(&tickslock);
-
-  
 
   release(&wait_lock);
 
@@ -966,7 +978,10 @@ procdump(void)
   }
 }
 
-// added for printing pids of shell and init - files changed: proc.c , sysproc.c, defs.h, usys.pl, user.h, syscall.h, printpids.c, make-file uprogs
+// added for printing pids of shell and init - files updated:
+// kernel folder: defs.h, proc.c, syscall.c, syscall.h, sysproc.c 
+// user folder: user.h, usys.pl, printpids.c
+// Makefile: UPROGS
 int 
 print_pids(void)
 {
@@ -976,7 +991,6 @@ print_pids(void)
       printf("%s %d\n", p->name, p->pid);
       release(&p->lock);
   }
-
   return 0;
 }
 
@@ -1018,4 +1032,38 @@ kill_system(void)
       }
   }
   return 0;
+}
+
+// print_stats - print performance measurements
+int
+print_stats(void)
+{
+  acquire(&tickslock);
+  int sleeping_processes_mean_value = sleeping_processes_mean;
+  int runnable_processes_mean_value = runnable_processes_mean;
+  int running_processes_mean_value = running_processes_mean;
+  int num_of_processes_value = num_of_processes;
+  int program_time_value = program_time;
+  int start_time_value = start_time;
+  int cpu_utilization_value = cpu_utilization;
+  release(&tickslock);
+
+  printf("sleeping_processes_mean: %d\n", sleeping_processes_mean_value);
+  printf("runnable_processes_mean: %d\n", runnable_processes_mean_value);
+  printf("running_processes_mean: %d\n", running_processes_mean_value);
+  printf("num_of_processes: %d\n", num_of_processes_value);
+  printf("program_time: %d\n", program_time_value);
+  printf("start_time: %d\n", start_time_value);
+  printf("cpu_utilization: %d\n", cpu_utilization_value);
+  return 0;
+}
+
+// get_utilization - returns cpu_utilization
+int
+get_utilization(void)
+{
+  acquire(&tickslock);
+  int utilization = cpu_utilization;
+  release(&tickslock);
+  return utilization;
 }

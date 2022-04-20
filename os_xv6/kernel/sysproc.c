@@ -97,12 +97,14 @@ sys_uptime(void)
 }
 
 uint64
-sys_print_pids(void){
+sys_print_pids(void)
+{
   return print_pids();
 }
 
 uint64
-sys_pause_system(void){
+sys_pause_system(void)
+{
   int seconds;
 
   if(argint(0, &seconds) < 0)
@@ -111,6 +113,19 @@ sys_pause_system(void){
 }
 
 uint64
-sys_kill_system(void){
+sys_kill_system(void)
+{
   return kill_system();
+}
+
+uint64
+sys_print_stats(void)
+{
+  return print_stats();
+}
+
+uint64
+sys_get_utilization(void)
+{
+  return get_utilization();
 }

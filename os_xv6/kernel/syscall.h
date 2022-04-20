@@ -23,3 +23,5 @@
 #define SYS_print_pids 22
 #define SYS_pause_system 23
 #define SYS_kill_system 24
+#define SYS_print_stats 25
+#define SYS_get_utilization 26
