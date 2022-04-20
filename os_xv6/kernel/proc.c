@@ -24,6 +24,7 @@ struct spinlock sjf_lock;
 int sleeping_processes_mean = 0;
 int runnable_processes_mean = 0;
 int running_processes_mean = 0;
+int num_of_processes = 0;
 
 struct cpu cpus[NCPU];
 
@@ -174,6 +175,10 @@ found:
   p->runnable_time = 0;
   p->running_time = 0;
 
+  p->sleeping_time_start = 0;
+  p->runnable_time_start = 0;
+  p->running_time_start = 0;
+
   return p;
 }
 
@@ -209,6 +214,10 @@ freeproc(struct proc *p)
   p->sleeping_time = 0;
   p->runnable_time = 0;
   p->running_time = 0;
+
+  p->sleeping_time_start = 0;
+  p->runnable_time_start = 0;
+  p->running_time_start = 0;
 }
 
 // Create a user page table for a given process,
@@ -360,6 +369,12 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+
+  // used for performance measurements
+  acquire(&tickslock);
+  np->runnable_time_start = ticks;
+  release(&tickslock);
+
   release(&np->lock);
 
   return pid;
@@ -417,6 +432,16 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+
+  // used for performance measurements
+  acquire(&tickslock);
+  sleeping_processes_mean = (sleeping_processes_mean * num_of_processes + p->sleeping_time) / (num_of_processes + 1);
+  runnable_processes_mean = (runnable_processes_mean * num_of_processes + p->runnable_time) / (num_of_processes + 1);
+  running_processes_mean = (running_processes_mean * num_of_processes + p->running_time) / (num_of_processes + 1);
+  num_of_processes++;
+  release(&tickslock);
+
+  
 
   release(&wait_lock);
 
@@ -537,6 +562,13 @@ default_scheduler(void){
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // used for performance measurements
+        acquire(&tickslock);
+        p->runnable_time += ticks - p->runnable_time_start;
+        p->running_time_start = ticks;
+        release(&tickslock);
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -610,6 +642,13 @@ sjf_scheduler(void){
       // before jumping back to us.
       sjf_p->state = RUNNING;
       c->proc = sjf_p;
+
+      // used for performance measurements
+      acquire(&tickslock);
+      p->runnable_time += ticks - p->runnable_time_start;
+      p->running_time_start = ticks;
+      release(&tickslock);
+      
       release(&sjf_lock);
       swtch(&c->context, &sjf_p->context);
       // Process is done running for now.
@@ -682,14 +721,21 @@ fcfs_scheduler(void){
       to_run = &proc[first_come];
       acquire(&to_run->lock);
       to_run->state = RUNNING;
-      release(&fcfs_lock);
       c->proc = to_run;
+
+      // used for performance measurements
+      acquire(&tickslock);
+      p->runnable_time += ticks - p->runnable_time_start;
+      p->running_time_start = ticks;
+      release(&tickslock);
+
+      release(&fcfs_lock);
       swtch(&c->context, &to_run->context);
       c->proc = 0;
       release(&to_run->lock);
     }
     else{
-        release(&fcfs_lock);
+      release(&fcfs_lock);
     }
   }
 }
@@ -728,6 +774,12 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+
+  // used for performance measurements
+  acquire(&tickslock);
+  p->running_time = ticks - p->running_time_start;
+  p->runnable_time_start = ticks;
+  release(&tickslock);
 
   // used for SJF and FCFS schedulers
   //uint total_ticks = p->last_ticks;
@@ -785,6 +837,12 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = chan;
   p->state = SLEEPING;
 
+  // used for performance measurements
+  acquire(&tickslock);
+  p->running_time += ticks - p->running_time_start;
+  p->sleeping_time_start = ticks;
+  release(&tickslock);
+
   sched();
 
   // Tidy up.
@@ -807,6 +865,12 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+
+        // used for performance measurements
+        acquire(&tickslock);
+        p->sleeping_time += ticks - p->sleeping_time_start;
+        p->runnable_time_start = ticks;
+        release(&tickslock);
       }
       release(&p->lock);
     }
@@ -828,6 +892,12 @@ kill(int pid)
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
+
+        // used for performance measurements
+        acquire(&tickslock);
+        p->sleeping_time += ticks - p->sleeping_time_start;
+        p->runnable_time = ticks;
+        release(&tickslock);
       }
       release(&p->lock);
       return 0;
