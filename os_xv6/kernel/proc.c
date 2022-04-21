@@ -74,11 +74,6 @@ void
 procinit(void)
 {
   struct proc *p;
-
-  // used for cpu_utilization
-  acquire(&tickslock);
-  start_time = ticks;
-  release(&tickslock);
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
@@ -86,6 +81,11 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->kstack = KSTACK((int) (p - proc));
   }
+
+  // used for cpu_utilization
+  acquire(&tickslock);
+  start_time = ticks;
+  release(&tickslock);
 }
 
 // Must be called with interrupts disabled,
@@ -181,7 +181,8 @@ found:
   // used for SJF scheduler
   p->mean_ticks = 0;
   p->last_ticks = 0;
-
+  
+  acquire(&tickslock);
   // used for performance measurements
   p->sleeping_time = 0;
   p->runnable_time = 0;
@@ -190,6 +191,7 @@ found:
   p->sleeping_time_start = 0;
   p->runnable_time_start = 0;
   p->running_time_start = 0;
+  release(&tickslock);
 
   return p;
 }
@@ -222,6 +224,7 @@ freeproc(struct proc *p)
   p->mean_ticks = 0;
   p->last_ticks = 0;
 
+  acquire(&tickslock);
   // used for performance measurements
   p->sleeping_time = 0;
   p->runnable_time = 0;
@@ -230,6 +233,7 @@ freeproc(struct proc *p)
   p->sleeping_time_start = 0;
   p->runnable_time_start = 0;
   p->running_time_start = 0;
+  release(&tickslock);
 }
 
 // Create a user page table for a given process,
@@ -452,7 +456,7 @@ exit(int status)
   running_processes_mean = (running_processes_mean * num_of_processes + p->running_time) / (num_of_processes + 1);
   num_of_processes++;
   program_time += p->running_time;
-  cpu_utilization = (100 * program_time) / (ticks - start_time);
+  cpu_utilization = (100 * program_time) / ((ticks - start_time) / 10);
   release(&tickslock);
 
   release(&wait_lock);
@@ -548,7 +552,7 @@ default_scheduler(void){
     // pause_system - syscall check - start
     acquire(&pause_lock);
     int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
+    int pause_start_time_value = pause_start_time;
     int seconds = pause_wait_time;
     release(&pause_lock);
     
@@ -557,7 +561,7 @@ default_scheduler(void){
       while (time_passed < seconds)
       {
         acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
+        time_passed = (ticks - pause_start_time_value) / 10;
         release(&tickslock);
       }
       acquire(&pause_lock);
@@ -575,11 +579,13 @@ default_scheduler(void){
         p->state = RUNNING;
         c->proc = p;
 
-        // used for performance measurements
-        acquire(&tickslock);
-        p->runnable_time += ticks - p->runnable_time_start;
-        p->running_time_start = ticks;
-        release(&tickslock);
+        if(p->pid > 2) {
+          // used for performance measurements
+          acquire(&tickslock);
+          p->runnable_time += (ticks - p->runnable_time_start) / 10;
+          p->running_time_start = ticks;
+          release(&tickslock);
+        }
 
         swtch(&c->context, &p->context);
 
@@ -606,7 +612,7 @@ sjf_scheduler(void){
     // pause_system - syscall check - start
     acquire(&pause_lock);
     int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
+    int pause_start_time_value = pause_start_time;
     int seconds = pause_wait_time;
     release(&pause_lock);
     
@@ -615,7 +621,7 @@ sjf_scheduler(void){
       while (time_passed < seconds)
       {
         acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
+        time_passed = (ticks - pause_start_time_value) / 10;
         release(&tickslock);
       }
       acquire(&pause_lock);
@@ -655,11 +661,13 @@ sjf_scheduler(void){
       sjf_p->state = RUNNING;
       c->proc = sjf_p;
 
-      // used for performance measurements
-      acquire(&tickslock);
-      p->runnable_time += ticks - p->runnable_time_start;
-      p->running_time_start = ticks;
-      release(&tickslock);
+      if(sjf_p->pid > 2) {
+        // used for performance measurements
+        acquire(&tickslock);
+        p->runnable_time += (ticks - p->runnable_time_start) / 10;
+        p->running_time_start = ticks;
+        release(&tickslock);
+      }
       
       release(&sjf_lock);
       swtch(&c->context, &sjf_p->context);
@@ -688,7 +696,7 @@ fcfs_scheduler(void){
     // pause_system - syscall check - start
     acquire(&pause_lock);
     int pause_flag_value = pause_flag;
-    int start_time = pause_start_time;
+    int pause_start_time_value = pause_start_time;
     int seconds = pause_wait_time;
     release(&pause_lock);
     
@@ -697,7 +705,7 @@ fcfs_scheduler(void){
       while (time_passed < seconds)
       {
         acquire(&tickslock);
-        time_passed = (ticks - start_time) / 10;
+        time_passed = (ticks - pause_start_time_value) / 10;
         release(&tickslock);
       }
       acquire(&pause_lock);
@@ -735,11 +743,14 @@ fcfs_scheduler(void){
       to_run->state = RUNNING;
       c->proc = to_run;
 
-      // used for performance measurements
-      acquire(&tickslock);
-      p->runnable_time += ticks - p->runnable_time_start;
-      p->running_time_start = ticks;
-      release(&tickslock);
+      if(to_run->pid > 2) {
+        // used for performance measurements
+        acquire(&tickslock);
+        p->runnable_time += (ticks - p->runnable_time_start) / 10;
+        p->running_time_start = ticks;
+        release(&tickslock);
+      }
+      
 
       release(&fcfs_lock);
       swtch(&c->context, &to_run->context);
@@ -787,11 +798,13 @@ yield(void)
   acquire(&p->lock);
   p->state = RUNNABLE;
 
-  // used for performance measurements
-  acquire(&tickslock);
-  p->running_time = ticks - p->running_time_start;
-  p->runnable_time_start = ticks;
-  release(&tickslock);
+  if(p->pid > 2) {
+    // used for performance measurements
+    acquire(&tickslock);
+    p->running_time += ((ticks - p->running_time_start) / 10);
+    p->runnable_time_start = ticks;
+    release(&tickslock);
+  }
 
   // used for SJF and FCFS schedulers
   //uint total_ticks = p->last_ticks;
@@ -849,11 +862,14 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = chan;
   p->state = SLEEPING;
 
-  // used for performance measurements
-  acquire(&tickslock);
-  p->running_time += ticks - p->running_time_start;
-  p->sleeping_time_start = ticks;
-  release(&tickslock);
+  if(p->pid > 2) {
+    // used for performance measurements
+    acquire(&tickslock);
+    printf("%d and %d\n", ticks, p->running_time_start);
+    p->running_time += (ticks - p->running_time_start) / 10;
+    p->sleeping_time_start = ticks;
+    release(&tickslock);
+  }
 
   sched();
 
@@ -877,12 +893,12 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
-
-        // used for performance measurements
-        acquire(&tickslock);
-        p->sleeping_time += ticks - p->sleeping_time_start;
-        p->runnable_time_start = ticks;
-        release(&tickslock);
+        
+        if(p->pid > 2) {
+          // used for performance measurements ("tickslock" already acquired)
+          p->sleeping_time += (ticks - p->sleeping_time_start) / 10;
+          p->runnable_time_start = ticks;
+        }
       }
       release(&p->lock);
     }
@@ -905,11 +921,13 @@ kill(int pid)
         // Wake process from sleep().
         p->state = RUNNABLE;
 
-        // used for performance measurements
-        acquire(&tickslock);
-        p->sleeping_time += ticks - p->sleeping_time_start;
-        p->runnable_time = ticks;
-        release(&tickslock);
+        if(p->pid > 2) {
+          // used for performance measurements
+          acquire(&tickslock);
+          p->sleeping_time += (ticks - p->sleeping_time_start) / 10;
+          p->runnable_time_start = ticks;
+          release(&tickslock);
+        }
       }
       release(&p->lock);
       return 0;
@@ -1055,6 +1073,13 @@ print_stats(void)
   printf("program_time: %d\n", program_time_value);
   printf("start_time: %d\n", start_time_value);
   printf("cpu_utilization: %d\n", cpu_utilization_value);
+
+  acquire(&tickslock);
+  int a = running_processes_mean_value;
+  int b = ticks;
+  int c = start_time;
+  printf("test: %d and %d and %d\n", a, b, c);
+  release(&tickslock);
   return 0;
 }
 
