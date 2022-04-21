@@ -35,6 +35,8 @@ main(int argc, char *argv[])
 {
     int n_forks = 2;
     int pid = getpid();
+    int pids_stauts[n_forks];
+
     for (int i = 0; i < n_forks; i++) {
         fork();
     }
@@ -45,22 +47,21 @@ main(int argc, char *argv[])
         env_large(10, 3, 100);
         if (pid == getpid()) {
             printf("experiment %d/%d\n", i + 1, n_experiments);
-            //printf("large CPU: %d\n", get_utilization());
             larges = (larges * i + get_utilization()) / (i + 1);
-            //printf("Large:::\n");
-            //print_stats();
         }
         sleep(10);
         env_freq(10, 100);
         if (pid == getpid()) {
-            //printf("freq CPU: %d\n", get_utilization());
             freqs = (freqs * i + get_utilization()) / (i + 1);
-            //printf("Freq:::\n");
-            //print_stats();
         }
     }
     if (pid == getpid()) {
         printf("larges = %d\nfreqs = %d\n", larges, freqs);
+
+        // wait for all childs to exit
+        for (int i = 0; i < n_forks; i++) {
+            wait(&pids_stauts[i]);
+        }
         print_stats();
     }
     exit(0);

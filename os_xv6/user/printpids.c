@@ -6,7 +6,5 @@ int
 main(int argc, char **argv)
 {
     print_pids();
-    print_stats();
-    printf("%d\n", get_utilization());
     exit(0);
 }

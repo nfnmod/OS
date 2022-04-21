@@ -13,7 +13,6 @@ int pause_start_time = 0;
 struct spinlock pause_lock;
 
 // used for FCFS scheduler
-int fcfs_time = 0;
 struct spinlock fcfs_lock;
 
 // used for SJF scheduler
@@ -81,6 +80,16 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->kstack = KSTACK((int) (p - proc));
   }
+
+  #ifdef DEFAULT
+  printf("policy: DEFAULT\n");
+  #elif SJF
+  printf("policy: SJF\n");
+  #elif FCFS
+  printf("policy: FCFS\n");
+  #else
+  panic("Invalid policy selected");
+  #endif
 
   // used for cpu_utilization
   acquire(&tickslock);
@@ -451,6 +460,10 @@ exit(int status)
 
   // used for performance measurements
   acquire(&tickslock);
+  p->sleeping_time = p->sleeping_time /10;
+  p->runnable_time = p->runnable_time /10;
+  p->running_time = p->running_time /10;
+
   sleeping_processes_mean = (sleeping_processes_mean * num_of_processes + p->sleeping_time) / (num_of_processes + 1);
   runnable_processes_mean = (runnable_processes_mean * num_of_processes + p->runnable_time) / (num_of_processes + 1);
   running_processes_mean = (running_processes_mean * num_of_processes + p->running_time) / (num_of_processes + 1);
@@ -526,16 +539,11 @@ void
 scheduler(void)
 {
   #ifdef DEFAULT
-  printf("DEFAULT\n");
   default_scheduler();
   #elif SJF
-  printf("SJF\n");
   sjf_scheduler();
   #elif FCFS
-  printf("FCFS\n");
   fcfs_scheduler();
-  #else
-  panic("Invalid policy selected");
   #endif
 }
 
@@ -556,7 +564,7 @@ default_scheduler(void){
     int seconds = pause_wait_time;
     release(&pause_lock);
     
-    if (pause_flag_value == 1) {
+    if(pause_flag_value == 1) {
       int time_passed = 0;
       while (time_passed < seconds)
       {
@@ -581,8 +589,10 @@ default_scheduler(void){
 
         if(p->pid > 2) {
           // used for performance measurements
+          c->proc->runnable_time_start = p->runnable_time_start;
+
           acquire(&tickslock);
-          p->runnable_time += (ticks - p->runnable_time_start) / 10;
+          c->proc->runnable_time += ticks - c->proc->runnable_time_start;
           p->running_time_start = ticks;
           release(&tickslock);
         }
@@ -616,7 +626,7 @@ sjf_scheduler(void){
     int seconds = pause_wait_time;
     release(&pause_lock);
     
-    if (pause_flag_value == 1) {
+    if(pause_flag_value == 1) {
       int time_passed = 0;
       while (time_passed < seconds)
       {
@@ -630,8 +640,9 @@ sjf_scheduler(void){
     }
     // pause_system - syscall check - end
 
-    int min_found = 0;
-    int min_mean_ticks = 0;
+    int min_sjf_time = 0;
+    int shortest_job = -1;
+    int i = 0;
     struct proc *sjf_p = 0;
 
     // locking other CPUs until the next process to run will be selcted
@@ -639,21 +650,22 @@ sjf_scheduler(void){
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        if(min_found == 1) {
-          if(min_mean_ticks < p->mean_ticks) {
-            min_mean_ticks = p->mean_ticks;
-            sjf_p = p;
+        if(shortest_job != -1) {
+          if(min_sjf_time > p->mean_ticks) {
+            shortest_job = i;
+            min_sjf_time = p->mean_ticks;
           }
         }
         else {
-          min_found = 1;
-          min_mean_ticks = p->mean_ticks;
-          sjf_p = p;
+          shortest_job = i;
+          min_sjf_time = p->mean_ticks;
         }
       }
       release(&p->lock);
+      i++;
     }
-    if(min_found) {
+    if(shortest_job != -1) {
+      sjf_p = &proc[shortest_job];
       acquire(&sjf_p->lock);
       // Switch to chosen process.  It is the process's job
       // to release its lock and then reacquire it
@@ -661,11 +673,13 @@ sjf_scheduler(void){
       sjf_p->state = RUNNING;
       c->proc = sjf_p;
 
-      if(sjf_p->pid > 2) {
+      if(c->proc->pid > 2) {
         // used for performance measurements
+        c->proc->runnable_time_start = sjf_p->runnable_time_start;
+
         acquire(&tickslock);
-        p->runnable_time += (ticks - p->runnable_time_start) / 10;
-        p->running_time_start = ticks;
+        c->proc->runnable_time += ticks - c->proc->runnable_time_start;
+        c->proc->running_time_start = ticks;
         release(&tickslock);
       }
       
@@ -700,7 +714,7 @@ fcfs_scheduler(void){
     int seconds = pause_wait_time;
     release(&pause_lock);
     
-    if (pause_flag_value == 1) {
+    if(pause_flag_value == 1) {
       int time_passed = 0;
       while (time_passed < seconds)
       {
@@ -714,50 +728,57 @@ fcfs_scheduler(void){
     }
     // pause_system - syscall check - end
 
-    // locking other CPUs until the next process to run will be selcted
-    acquire(&fcfs_lock);
-    fcfs_time = 0;
+    int min_fcfs_time = 0;
     int first_come = -1;
     int i = 0;
-    struct proc *to_run = 0;
+    struct proc *fcfs_p = 0;
+
+    // locking other CPUs until the next process to run will be selcted
+    acquire(&fcfs_lock);
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if (p->state == RUNNABLE){
-          if(first_come != -1){
-            if (fcfs_time > p->last_runnable_time) {
+      if(p->state == RUNNABLE) {
+          if(first_come != -1) {
+            if(min_fcfs_time > p->last_runnable_time) {
               first_come = i;
-              fcfs_time = p->last_runnable_time;
+              min_fcfs_time = p->last_runnable_time;
             }
           }
-          else{
+          else {
             first_come = i;
-            fcfs_time = p->last_runnable_time;
+            min_fcfs_time = p->last_runnable_time;
           }
       }
       release(&p->lock);
       i++;
     }
-    if (first_come != -1){
-      to_run = &proc[first_come];
-      acquire(&to_run->lock);
-      to_run->state = RUNNING;
-      c->proc = to_run;
+    if(first_come != -1) {
+      fcfs_p = &proc[first_come];
+      acquire(&fcfs_p->lock);
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      fcfs_p->state = RUNNING;
+      c->proc = fcfs_p;
 
-      if(to_run->pid > 2) {
+      if(c->proc->pid > 2) {
         // used for performance measurements
+        c->proc->runnable_time_start = fcfs_p->runnable_time_start;
+
         acquire(&tickslock);
-        p->runnable_time += (ticks - p->runnable_time_start) / 10;
-        p->running_time_start = ticks;
+        c->proc->runnable_time += ticks - c->proc->runnable_time_start;
+        c->proc->running_time_start = ticks;
         release(&tickslock);
       }
       
-
       release(&fcfs_lock);
-      swtch(&c->context, &to_run->context);
+      swtch(&c->context, &fcfs_p->context);
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
       c->proc = 0;
-      release(&to_run->lock);
+      release(&fcfs_p->lock);
     }
-    else{
+    else {
       release(&fcfs_lock);
     }
   }
@@ -801,7 +822,7 @@ yield(void)
   if(p->pid > 2) {
     // used for performance measurements
     acquire(&tickslock);
-    p->running_time += ((ticks - p->running_time_start) / 10);
+    p->running_time += ticks - p->running_time_start;
     p->runnable_time_start = ticks;
     release(&tickslock);
   }
@@ -865,8 +886,7 @@ sleep(void *chan, struct spinlock *lk)
   if(p->pid > 2) {
     // used for performance measurements
     acquire(&tickslock);
-    printf("%d and %d\n", ticks, p->running_time_start);
-    p->running_time += (ticks - p->running_time_start) / 10;
+    p->running_time += ticks - p->running_time_start;
     p->sleeping_time_start = ticks;
     release(&tickslock);
   }
@@ -896,7 +916,7 @@ wakeup(void *chan)
         
         if(p->pid > 2) {
           // used for performance measurements ("tickslock" already acquired)
-          p->sleeping_time += (ticks - p->sleeping_time_start) / 10;
+          p->sleeping_time += ticks - p->sleeping_time_start;
           p->runnable_time_start = ticks;
         }
       }
@@ -924,7 +944,7 @@ kill(int pid)
         if(p->pid > 2) {
           // used for performance measurements
           acquire(&tickslock);
-          p->sleeping_time += (ticks - p->sleeping_time_start) / 10;
+          p->sleeping_time += ticks - p->sleeping_time_start;
           p->runnable_time_start = ticks;
           release(&tickslock);
         }
@@ -1073,13 +1093,6 @@ print_stats(void)
   printf("program_time: %d\n", program_time_value);
   printf("start_time: %d\n", start_time_value);
   printf("cpu_utilization: %d\n", cpu_utilization_value);
-
-  acquire(&tickslock);
-  int a = running_processes_mean_value;
-  int b = ticks;
-  int c = start_time;
-  printf("test: %d and %d and %d\n", a, b, c);
-  release(&tickslock);
   return 0;
 }
 
