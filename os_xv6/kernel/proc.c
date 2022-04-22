@@ -1092,7 +1092,7 @@ print_stats(void)
   printf("num_of_processes: %d\n", num_of_processes_value);
   printf("program_time: %d\n", program_time_value);
   printf("start_time: %d\n", start_time_value);
-  printf("cpu_utilization: %d\n", cpu_utilization_value);
+  printf("cpu_utilization: %d%\n", cpu_utilization_value);
   return 0;
 }
 

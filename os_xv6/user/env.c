@@ -8,61 +8,55 @@
 #include "kernel/memlayout.h"
 #include "kernel/riscv.h"
 
-int loop_size = 10000;
-int large_interval = 1000;
-int large_size = 1000;
-int freq_interval = 100;
-int freq_size = 100;
-void env(int size, int interval, char* env_name) {
-    int result = 1;
-    for (int i = 0; i < loop_size; i++) {
-        if (i % interval == 0) {
-            result = result * size;
+void env(int num_of_tasks, int task_time, char* env_name) {
+    int result = 0;
+    int n_forks = 10;
+    int pid = getpid();
+    int pids_stauts[n_forks];
+    int n_experiments = 10;
+
+    for (int i = 0; i < n_experiments; i++) {
+        printf("experiment %d/%d\n", i + 1, n_experiments);
+
+        for(int i = 0; i < n_forks; i++) {
+            if(pid == getpid()) {
+                fork();
+            }
+        }
+        
+        // sleep(50) => 50 miliseconds = 5 seconds
+        sleep(50);
+        
+        if(pid == getpid()) {
+            // wait for all childs to exit
+            for (int i = 0; i < n_forks; i++) {
+                wait(&pids_stauts[i]);
+            }
+            print_stats();
+        }
+        else {
+            int task_start = uptime();
+            while((uptime() - task_start) < task_time * 10)
+            {
+                result = result + 1;
+            }
+            exit(0);
         }
     }
 }
 
 void env_large() {
-    env(large_size, large_interval, "env_large");
+    env(10, 100, "env_large");
 }
 
 void env_freq() {
-    env(freq_size, freq_interval, "env_freq");
+    env(50, 50, "env_freq");
 }
 
 int
 main(int argc, char *argv[])
 {
-    int n_forks = 2;
-    int pid = getpid();
-    int pids_stauts[n_forks];
-
-    for (int i = 0; i < n_forks; i++) {
-        fork();
-    }
-    int larges = 0;
-    int freqs = 0;
-    int n_experiments = 10;
-    for (int i = 0; i < n_experiments; i++) {
-        env_large(10, 3, 100);
-        if (pid == getpid()) {
-            printf("experiment %d/%d\n", i + 1, n_experiments);
-            larges = (larges * i + get_utilization()) / (i + 1);
-        }
-        sleep(10);
-        env_freq(10, 100);
-        if (pid == getpid()) {
-            freqs = (freqs * i + get_utilization()) / (i + 1);
-        }
-    }
-    if (pid == getpid()) {
-        printf("larges = %d\nfreqs = %d\n", larges, freqs);
-
-        // wait for all childs to exit
-        for (int i = 0; i < n_forks; i++) {
-            wait(&pids_stauts[i]);
-        }
-        print_stats();
-    }
+    //env_large();
+    env_freq();
     exit(0);
 }
