@@ -460,16 +460,16 @@ exit(int status)
 
   // used for performance measurements
   acquire(&tickslock);
-  p->sleeping_time = p->sleeping_time /10;
-  p->runnable_time = p->runnable_time /10;
-  p->running_time = p->running_time /10;
+  p->sleeping_time = p->sleeping_time;
+  p->runnable_time = p->runnable_time;
+  p->running_time = p->running_time;
 
   sleeping_processes_mean = (sleeping_processes_mean * num_of_processes + p->sleeping_time) / (num_of_processes + 1);
   runnable_processes_mean = (runnable_processes_mean * num_of_processes + p->runnable_time) / (num_of_processes + 1);
   running_processes_mean = (running_processes_mean * num_of_processes + p->running_time) / (num_of_processes + 1);
   num_of_processes++;
   program_time += p->running_time;
-  cpu_utilization = (100 * program_time) / ((ticks - start_time) / 10);
+  cpu_utilization = (100 * program_time) / ((ticks - start_time));
   release(&tickslock);
 
   release(&wait_lock);
@@ -1086,11 +1086,11 @@ print_stats(void)
   int cpu_utilization_value = cpu_utilization;
   release(&tickslock);
 
-  printf("sleeping_processes_mean: %d\n", sleeping_processes_mean_value);
-  printf("runnable_processes_mean: %d\n", runnable_processes_mean_value);
-  printf("running_processes_mean: %d\n", running_processes_mean_value);
+  printf("sleeping_processes_mean: %d mils\n", sleeping_processes_mean_value);
+  printf("runnable_processes_mean: %d mils\n", runnable_processes_mean_value);
+  printf("running_processes_mean: %d mils\n", running_processes_mean_value);
   printf("num_of_processes: %d\n", num_of_processes_value);
-  printf("program_time: %d\n", program_time_value);
+  printf("program_time: %d mils\n", program_time_value);
   printf("start_time: %d\n", start_time_value);
   printf("cpu_utilization: %d%\n", cpu_utilization_value);
   return 0;
