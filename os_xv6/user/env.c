@@ -35,7 +35,6 @@ void env(int num_of_tasks, int task_length, char* env_name) {
             print_stats();
         }
         else {
-            //int task_start = uptime();
             while(result < task_length)
             {
                 printf("I have printed this %d/%d times\n", result, task_length);

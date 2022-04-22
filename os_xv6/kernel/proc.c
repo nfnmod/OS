@@ -589,8 +589,6 @@ default_scheduler(void){
 
         if(p->pid > 2) {
           // used for performance measurements
-          c->proc->runnable_time_start = p->runnable_time_start;
-
           acquire(&tickslock);
           c->proc->runnable_time += ticks - c->proc->runnable_time_start;
           p->running_time_start = ticks;
@@ -675,8 +673,6 @@ sjf_scheduler(void){
 
       if(c->proc->pid > 2) {
         // used for performance measurements
-        c->proc->runnable_time_start = sjf_p->runnable_time_start;
-
         acquire(&tickslock);
         c->proc->runnable_time += ticks - c->proc->runnable_time_start;
         c->proc->running_time_start = ticks;
@@ -763,8 +759,6 @@ fcfs_scheduler(void){
 
       if(c->proc->pid > 2) {
         // used for performance measurements
-        c->proc->runnable_time_start = fcfs_p->runnable_time_start;
-
         acquire(&tickslock);
         c->proc->runnable_time += ticks - c->proc->runnable_time_start;
         c->proc->running_time_start = ticks;
