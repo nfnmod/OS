@@ -15,7 +15,6 @@ void pause_system_dem(int interval, int pause_seconds, int loop_size) {
             printf("pause system %d/%d completed.\n", i, loop_size);
         }
         if (i == loop_size / 2) {
-            printf("pausing system\n");
             pause_system(pause_seconds);
         }
     }
