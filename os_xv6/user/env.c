@@ -57,6 +57,6 @@ int
 main(int argc, char *argv[])
 {
     env_large();
-    //env_freq();
+    env_freq();
     exit(0);
 }

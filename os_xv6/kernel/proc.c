@@ -822,14 +822,20 @@ yield(void)
   }
 
   // used for SJF and FCFS schedulers
-  //uint total_ticks = p->last_ticks;
+  // acquire(&tickslock);
+  // p->last_ticks = ticks;
+  // p->last_runnable_time = ticks;
+  // release(&tickslock);
+  // p->mean_ticks = ((10 - rate) * p->mean_ticks + p->last_ticks * (rate)) / 10;
+
+  // alternative implementation for SJF
+  uint total_ticks = p->last_ticks;
   acquire(&tickslock);
   p->last_ticks = ticks;
   p->last_runnable_time = ticks;
   release(&tickslock);
-  //total_ticks = p->last_ticks - total_ticks;
-  //p->mean_ticks = ((10 - rate) * p->mean_ticks + total_ticks * (rate)) / 10;
-  p->mean_ticks = ((10 - rate) * p->mean_ticks + p->last_ticks * (rate)) / 10;
+  total_ticks = p->last_ticks - total_ticks;
+  p->mean_ticks = ((10 - rate) * p->mean_ticks + total_ticks * (rate)) / 10;
 
   sched();
   release(&p->lock);
@@ -1085,7 +1091,7 @@ print_stats(void)
   printf("running_processes_mean: %d mils\n", running_processes_mean_value);
   printf("num_of_processes: %d\n", num_of_processes_value);
   printf("program_time: %d mils\n", program_time_value);
-  printf("start_time: %d\n", start_time_value);
+  printf("start_time: %d mils\n", start_time_value);
   printf("cpu_utilization: %d%\n", cpu_utilization_value);
   return 0;
 }
