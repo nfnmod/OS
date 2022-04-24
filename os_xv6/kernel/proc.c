@@ -821,21 +821,16 @@ yield(void)
     release(&tickslock);
   }
 
-  // used for SJF and FCFS schedulers
-  // acquire(&tickslock);
-  // p->last_ticks = ticks;
-  // p->last_runnable_time = ticks;
-  // release(&tickslock);
-  // p->mean_ticks = ((10 - rate) * p->mean_ticks + p->last_ticks * (rate)) / 10;
-
-  // alternative implementation for SJF
-  uint total_ticks = p->last_ticks;
+  // used for SJF and FCFS
+  int last_ticks_value = 0;
   acquire(&tickslock);
+  p->last_ticks = ticks - p->last_ticks;
+  last_ticks_value = p->last_ticks;
   p->last_ticks = ticks;
+
   p->last_runnable_time = ticks;
   release(&tickslock);
-  total_ticks = p->last_ticks - total_ticks;
-  p->mean_ticks = ((10 - rate) * p->mean_ticks + total_ticks * (rate)) / 10;
+  p->mean_ticks = ((10 - rate) * p->mean_ticks + last_ticks_value * (rate)) / 10;
 
   sched();
   release(&p->lock);
@@ -1049,8 +1044,6 @@ pause_system(int seconds)
   yield();
   return 0;
 }
-
-  
 
 // kill system - kill all processes but init and shell
 int 
